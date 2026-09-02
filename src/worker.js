@@ -1,22 +1,6 @@
 const E=new TextEncoder();
 const json=(d,s=200,h={})=>new Response(JSON.stringify(d),{status:s,headers:{"content-type":"application/json","cache-control":"no-store",...h}});
 const email=v=>String(v||"").trim().toLowerCase(),name=v=>String(v||"").trim().replace(/\s+/g," ").slice(0,60),rid=(n=32)=>{let a=new Uint8Array(n);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")},code=()=>{let a=new Uint32Array(1);crypto.getRandomValues(a);return String(a[0]%1e6).padStart(6,"0")};
-
-const DB_SCHEMA = `PRAGMA foreign_keys=ON;
-CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,display_name TEXT NOT NULL,password_hash TEXT,password_salt TEXT,google_sub TEXT UNIQUE,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS sessions(id_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
-CREATE TABLE IF NOT EXISTS password_resets(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,code_hash TEXT NOT NULL,salt TEXT NOT NULL,expires_at INTEGER NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,used INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
-CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);`;
-let dbInitPromise=null;
-async function ensureDatabase(e){
-  if(!dbInitPromise){
-    dbInitPromise=e.DB.exec(DB_SCHEMA).catch(err=>{dbInitPromise=null;throw err});
-  }
-  await dbInitPromise;
-}
-
 const b64=a=>btoa(String.fromCharCode(...a)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");
 const unb64=s=>{let x=s.replace(/-/g,"+").replace(/_/g,"/");x+="===".slice((x.length+3)%4);let b=atob(x);return Uint8Array.from(b,c=>c.charCodeAt(0))};
 async function sha(t){let d=await crypto.subtle.digest("SHA-256",E.encode(t));return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("")}
@@ -27,7 +11,9 @@ function getCookie(r){let m=(r.headers.get("Cookie")||"").match(/(?:^|;\s*)bdhs_
 async function user(r,e){let t=getCookie(r);if(!t)return null;return await e.DB.prepare(`SELECT u.id,u.email,u.display_name,u.google_sub FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id_hash=? AND s.expires_at>?`).bind(await sha(t),Date.now()).first()}
 async function session(uid,remember,e){let t=rid(32),now=Date.now(),max=remember?2592000:86400;await e.DB.prepare("INSERT INTO sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)").bind(await sha(t),uid,now+max*1000,now).run();return{t,max}}
 async function mail(e,to,c){if(!e.RESEND_API_KEY)throw Error("RESEND_API_KEY is not configured.");let r=await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:`Bearer ${e.RESEND_API_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({from:e.EMAIL_FROM||"BDHS Schedules <onboarding@resend.dev>",to:[to],subject:"Your BDHS Schedules verification code",text:`BDHS Schedules\n\nYour password reset verification code is:\n\n${c}\n\nThis code expires in 10 minutes.`})});if(!r.ok)throw Error("Email send failed")}
-async function api(r,e){if(r.headers.get("Origin")&&r.headers.get("Origin")!==e.APP_ORIGIN)return json({error:"Forbidden origin."},403);await ensureDatabase(e);let p=new URL(r.url).pathname,b={};if(r.method!=="GET")b=await r.json().catch(()=>({}));
+const INIT_SQL=`PRAGMA foreign_keys=ON;CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,display_name TEXT NOT NULL,password_hash TEXT,password_salt TEXT,google_sub TEXT UNIQUE,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS sessions(id_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);CREATE TABLE IF NOT EXISTS password_resets(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,code_hash TEXT NOT NULL,expires_at INTEGER NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,used INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);`;
+let initialized=false,initPromise=null;async function ensureDB(e){if(initialized)return;if(!initPromise)initPromise=(async()=>{for(const stmt of INIT_SQL.split(";").map(x=>x.trim()).filter(Boolean)){await e.DB.prepare(stmt).run()}initialized=true})().catch(x=>{initPromise=null;throw x});return initPromise}
+async function api(r,e){const origin=r.headers.get("Origin");if(origin&&origin!==new URL(r.url).origin&&origin!==e.APP_ORIGIN)return json({error:"Forbidden origin."},403);await ensureDB(e);let p=new URL(r.url).pathname,b={};if(r.method!=="GET")b=await r.json().catch(()=>({}));
 try{
 if(r.method==="GET"&&p==="/api/auth/me")return json({authenticated:!!(await user(r,e)),user:await user(r,e)});
 if(r.method==="POST"&&p==="/api/auth/signup"){let em=email(b.email),dn=name(b.displayName);if(!em.includes("@")||dn.length<2||typeof b.password!=="string"||b.password.length<10)return json({error:"Enter a valid email, display name, and a password of at least 10 characters."},400);if(await e.DB.prepare("SELECT id FROM users WHERE email=?").bind(em).first())return json({error:"An account with that email already exists."},409);let id=crypto.randomUUID(),h=await ph(b.password),now=Date.now();await e.DB.prepare("INSERT INTO users(id,email,display_name,password_hash,password_salt,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").bind(id,em,dn,h.hash,h.s,now,now).run();let ss=await session(id,!!b.remember,e);return json({ok:true,user:{id,email:em,display_name:dn}},201,{"Set-Cookie":cookie(ss.t,ss.max)})}

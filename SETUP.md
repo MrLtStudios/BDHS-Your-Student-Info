@@ -18,11 +18,11 @@ Open `public/js/schedules.js`. The architecture and known schedule names/date ov
 
 ## 2. Cloudflare D1
 Create a D1 database named `bdhs-auth`. Put its ID in `wrangler.jsonc` where it says `REPLACE_WITH_YOUR_D1_DATABASE_ID`.
-
-You do **not** need to run `npx wrangler d1 execute ...`. The Worker now contains the database schema and automatically creates the required tables the first time an `/api/*` request is made.
+Run:
+`No manual D1 schema command is required. The Worker automatically creates the required tables on its first API request.`
 
 ## 3. Cloudflare variables/secrets
-Edit `wrangler.jsonc` and set `APP_ORIGIN` to your real HTTPS site.
+Edit `wrangler.jsonc` and set `APP_ORIGIN (optional)` to your real HTTPS site.
 Then set secrets:
 `npx wrangler secret put RESEND_API_KEY`
 `npx wrangler secret put EMAIL_FROM`
@@ -37,7 +37,7 @@ Create a Resend account, verify a domain you control, and use a sender such as `
 Create a Google web client ID. Add your production site origin to its authorized JavaScript origins. Put the client ID in `public/index.html` where `YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com` appears, and also store it as the Worker secret.
 
 ## 6. Deploy from the Cloudflare screen in your screenshot
-Project name: `bdhs-your-student-info`
+Project name: `bdhs-bell-schedules`
 Build command: leave blank
 Deploy command: `npx wrangler deploy`
 
