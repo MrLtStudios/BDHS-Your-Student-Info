@@ -1,4 +1,0 @@
-APP_ORIGIN=http://localhost:8787
-GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxx
-EMAIL_FROM=BDHS Schedules <no-reply@your-domain.example>
