@@ -1,0 +1,9 @@
+{
+  "$schema":"node_modules/wrangler/config-schema.json",
+  "name":"bdhs-bell-schedules",
+  "main":"src/worker.js",
+  "compatibility_date":"2026-09-01",
+  "assets":{"directory":"./public"},
+  "d1_databases":[{"binding":"DB","database_name":"bdhs-auth","database_id":"REPLACE_WITH_YOUR_D1_DATABASE_ID"}],
+  "vars":{"APP_ORIGIN":"https://YOUR-DOMAIN.example"}
+}
